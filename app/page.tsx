@@ -1,6 +1,6 @@
 "use client";
-import React, { useState } from 'react';
-import { FileSpreadsheet, CheckCircle, BarChart3, Clock, AlertTriangle, Loader2, UploadCloud, RefreshCw } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { BarChart3, Clock, AlertTriangle, Loader2, UploadCloud, RefreshCw, CheckCircle, Calendar, Filter } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // --- Types ---
@@ -28,6 +28,9 @@ export default function Home() {
   const [data, setData] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // --- NEW: State for Month Filter ---
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
 
   const handleUpload = async () => {
     if (!file) return;
@@ -43,6 +46,7 @@ export default function Home() {
       
       if (res.ok && json.success) {
         setData(json.data);
+        setSelectedMonth(''); // Reset filter on new upload
       } else {
         setError(json.error || "Failed to process file");
       }
@@ -52,6 +56,36 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  // --- NEW: Filter Logic & Recalculation ---
+  const { filteredRecords, stats } = useMemo(() => {
+    if (!data) return { filteredRecords: [], stats: null };
+
+    // 1. Filter the records based on selection
+    const records = data.records.filter(r => {
+      if (!selectedMonth) return true;
+      return r.date.startsWith(selectedMonth); // e.g., "2024-12"
+    });
+
+    // 2. Recalculate Stats for the selected view
+    let worked = 0;
+    let expected = 0;
+    let leaves = 0;
+
+    records.forEach(r => {
+      worked += r.workedHours;
+      expected += r.expectedHours;
+      if (r.isLeave) leaves++;
+    });
+
+    const productivity = expected > 0 ? ((worked / expected) * 100).toFixed(1) : "0.0";
+
+    return { 
+      filteredRecords: records, 
+      stats: { worked, expected, leaves, productivity } 
+    };
+  }, [data, selectedMonth]);
+
 
   return (
     <div className="min-h-screen bg-slate-50 p-6 font-sans text-slate-800">
@@ -114,54 +148,71 @@ export default function Home() {
         )}
 
         {/* Dashboard Results */}
-        {data && (
+        {data && stats && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             
-            {/* Header with Name */}
-            <div className="flex justify-between items-end">
+            {/* Header Controls */}
+            <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
               <div>
                 <p className="text-slate-500 text-sm font-medium uppercase tracking-wide">Report For</p>
-                <h2 className="text-3xl font-bold text-slate-900">{data.employeeName}</h2>
+                <h2 className="text-2xl font-bold text-slate-900">{data.employeeName}</h2>
               </div>
-              <button 
-                onClick={() => {setData(null); setFile(null); setError(null);}} 
-                className="flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors text-sm font-medium"
-              >
-                <RefreshCw size={16} /> Upload New File
-              </button>
+              
+              <div className="flex items-center gap-3">
+                {/* --- MONTH FILTER INPUT --- */}
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
+                    <Filter size={16} className="text-slate-400"/>
+                    <span className="text-sm font-medium text-slate-600">Month:</span>
+                    <input 
+                        type="month" 
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        className="bg-transparent text-sm font-semibold text-slate-800 focus:outline-none"
+                    />
+                </div>
+
+                <button 
+                  onClick={() => {setData(null); setFile(null); setError(null);}} 
+                  className="flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors text-sm font-medium px-3 py-2 border border-transparent hover:bg-blue-50 rounded-lg"
+                >
+                  <RefreshCw size={16} /> New File
+                </button>
+              </div>
             </div>
 
-            {/* Stats Grid */}
+            {/* Stats Grid (Recalculated) */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <StatsCard 
                 label="Productivity Score" 
-                value={`${data.productivity}%`} 
+                value={`${stats.productivity}%`} 
                 icon={<BarChart3 className="text-blue-600" />} 
               />
               <StatsCard 
                 label="Leaves Taken" 
-                value={`${data.leavesTaken} / 2`} 
-                icon={<AlertTriangle className={data.leavesTaken > 2 ? "text-red-500" : "text-orange-500"} />} 
-                alert={data.leavesTaken > 2}
+                value={`${stats.leaves}`} 
+                icon={<AlertTriangle className={stats.leaves > 2 ? "text-red-500" : "text-orange-500"} />} 
+                alert={stats.leaves > 2}
               />
               <StatsCard 
                 label="Total Worked Hours" 
-                value={data.totalWorked.toFixed(1)} 
+                value={stats.worked.toFixed(1)} 
                 icon={<Clock className="text-green-600" />} 
               />
               <StatsCard 
                 label="Target Hours" 
-                value={data.totalExpected.toString()} 
+                value={stats.expected.toString()} 
                 icon={<CheckCircle className="text-slate-400" />} 
               />
             </div>
 
             {/* Chart Section */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-              <h3 className="font-semibold text-slate-800 mb-6">Daily Performance Trend</h3>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-semibold text-slate-800">Performance Trend {selectedMonth ? `(${selectedMonth})` : '(All Time)'}</h3>
+              </div>
               <div className="h-80 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data.records} margin={{top: 10, right: 10, left: -20, bottom: 0}}>
+                  <BarChart data={filteredRecords} margin={{top: 10, right: 10, left: -20, bottom: 0}}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis 
                       dataKey="date" 
@@ -202,18 +253,24 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {data.records.map((r, i) => (
-                      <tr key={i} className={`hover:bg-slate-50 transition-colors ${r.isLeave && r.dayName !== 'Sunday' ? "bg-red-50/50" : ""}`}>
-                        <td className="p-4 font-medium text-slate-700">{new Date(r.date).toLocaleDateString()}</td>
-                        <td className="p-4 text-slate-600">{r.dayName}</td>
-                        <td className="p-4 font-mono text-slate-500">{r.inTime}</td>
-                        <td className="p-4 font-mono text-slate-500">{r.outTime}</td>
-                        <td className="p-4 font-bold text-slate-800">{r.workedHours > 0 ? r.workedHours : '-'}</td>
-                        <td className="p-4">
-                          <StatusBadge isLeave={r.isLeave} dayName={r.dayName} />
-                        </td>
+                    {filteredRecords.length > 0 ? (
+                      filteredRecords.map((r, i) => (
+                        <tr key={i} className={`hover:bg-slate-50 transition-colors ${r.isLeave && r.dayName !== 'Sunday' ? "bg-red-50/50" : ""}`}>
+                          <td className="p-4 font-medium text-slate-700">{new Date(r.date).toLocaleDateString()}</td>
+                          <td className="p-4 text-slate-600">{r.dayName}</td>
+                          <td className="p-4 font-mono text-slate-500">{r.inTime}</td>
+                          <td className="p-4 font-mono text-slate-500">{r.outTime}</td>
+                          <td className="p-4 font-bold text-slate-800">{r.workedHours > 0 ? r.workedHours : '-'}</td>
+                          <td className="p-4">
+                            <StatusBadge isLeave={r.isLeave} dayName={r.dayName} />
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-slate-400">No records found for the selected month.</td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -225,7 +282,7 @@ export default function Home() {
   );
 }
 
-// Sub-components for cleaner code
+// Sub-components
 function StatsCard({ label, value, icon, alert = false }: { label: string, value: string, icon: React.ReactNode, alert?: boolean }) {
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
