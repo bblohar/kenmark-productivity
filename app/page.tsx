@@ -99,9 +99,7 @@ export default function Home() {
             </div>
             <h1 className="text-2xl font-bold text-slate-900">Productivity Analyzer</h1>
           </div>
-          <span className="bg-blue-100 text-blue-800 px-4 py-1.5 rounded-full text-sm font-semibold border border-blue-200">
-            Internship Task
-          </span>
+          
         </div>
 
         
