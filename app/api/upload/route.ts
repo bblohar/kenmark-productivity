@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
+import { prisma } from '../../../lib/prisma';
+
 
 // Explicitly prevent static caching (Fixes Vercel build issues)
 export const dynamic = 'force-dynamic';
@@ -95,10 +97,11 @@ function calculateDailyMetrics(row: ExcelRow) {
   }
 
   return {
-    date: date.toISOString(),
+    date: date.toISOString(), // Keep as string for initial processing
+    dateObj: date,            // Keep object for Database saving
     dayName,
-    inTime: inObj ? inObj.str : '-',
-    outTime: outObj ? outObj.str : '-',
+    inTime: inObj ? inObj.str : null, // DB expects null, not '-'
+    outTime: outObj ? outObj.str : null,
     expectedHours: expected,
     workedHours: worked,
     isLeave
@@ -119,7 +122,6 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
     
-    // Safety check for empty workbook
     if (workbook.SheetNames.length === 0) {
       return NextResponse.json({ success: false, error: "Excel file is empty" }, { status: 400 });
     }
@@ -127,7 +129,6 @@ export async function POST(req: NextRequest) {
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     
-    // raw: false tries to keep strings, dateNF helps format standard dates
     const jsonData = XLSX.utils.sheet_to_json(sheet, { raw: false, dateNF: 'yyyy-mm-dd' }) as ExcelRow[];
 
     if (jsonData.length === 0) {
@@ -135,27 +136,73 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Process Records
-    const records: any[] = [];
-    let totalExpected = 0;
-    let totalWorked = 0;
-    let leavesTaken = 0;
     let employeeName = "Unknown Employee";
+    const processedRecords = [];
 
-    jsonData.forEach((row, index) => {
-      // Extract Name from first row if available
+    // First Loop: Process Logic Only
+    for (const [index, row] of jsonData.entries()) {
       if (index === 0 && row['Employee Name']) {
         employeeName = String(row['Employee Name']);
       }
-      
       const metrics = calculateDailyMetrics(row);
-      records.push(metrics);
+      processedRecords.push(metrics);
+    }
 
-      totalExpected += metrics.expectedHours;
-      totalWorked += metrics.workedHours;
-      if (metrics.isLeave) leavesTaken++;
+    // --- 3. DATABASE SAVING (The Integrated Part) ---
+    
+    // A. Create/Find Employee
+    const employee = await prisma.employee.upsert({
+      where: { name: employeeName },
+      update: {},
+      create: { name: employeeName },
     });
 
-    // 3. Calculate Final Productivity
+    // B. Save Records to MongoDB
+    for (const record of processedRecords) {
+        await prisma.attendanceRecord.upsert({
+            where: {
+                employeeId_date: {
+                    employeeId: employee.id,
+                    date: record.dateObj // Use the Date object here
+                }
+            },
+            update: {
+                inTime: record.inTime,
+                outTime: record.outTime,
+                workedHours: record.workedHours,
+                isLeave: record.isLeave,
+                dayType: record.dayName
+            },
+            create: {
+                employeeId: employee.id,
+                date: record.dateObj,
+                inTime: record.inTime,
+                outTime: record.outTime,
+                workedHours: record.workedHours,
+                isLeave: record.isLeave,
+                dayType: record.dayName
+            }
+        });
+    }
+
+    // --- 4. FETCH FINAL DATA FROM DB ---
+    // We re-fetch from DB to ensure the response matches exactly what is saved
+    const allRecords = await prisma.attendanceRecord.findMany({
+        where: { employeeId: employee.id },
+        orderBy: { date: 'asc' }
+    });
+
+    let totalExpected = 0;
+    let totalWorked = 0;
+    let leavesTaken = 0;
+    
+    allRecords.forEach((r: any) => {
+        if (r.dayType === 'Weekday') totalExpected += 8.5;
+        if (r.dayType === 'Saturday') totalExpected += 4.0;
+        totalWorked += r.workedHours;
+        if (r.isLeave) leavesTaken++;
+    });
+
     const productivity = totalExpected > 0 
       ? ((totalWorked / totalExpected) * 100).toFixed(1) 
       : "0.0";
@@ -168,7 +215,12 @@ export async function POST(req: NextRequest) {
         totalWorked,
         leavesTaken,
         productivity,
-        records
+        records: allRecords.map((r: any) => ({
+            ...r, 
+            date: r.date.toISOString(), // Convert date back to string for JSON
+            inTime: r.inTime || '-',    // Convert null back to '-' for UI
+            outTime: r.outTime || '-' 
+        }))
       }
     });
 

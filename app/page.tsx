@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { BarChart3, Clock, AlertTriangle, Loader2, UploadCloud, RefreshCw, CheckCircle, Calendar, Filter } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
-// --- Types ---
+
 interface AttendanceRecord {
   date: string;
   dayName: string;
@@ -104,7 +104,7 @@ export default function Home() {
           </span>
         </div>
 
-        {/* Error Message */}
+        
         {error && (
           <div className="bg-red-50 text-red-600 p-4 rounded-xl border border-red-200 flex items-center gap-2">
             <AlertTriangle size={20} />
@@ -112,7 +112,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Upload State */}
+       
         {!data && (
           <div className="bg-white p-16 rounded-2xl shadow-sm border-2 border-dashed border-slate-300 text-center hover:border-blue-400 transition-colors">
             <div className="bg-blue-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -159,7 +159,7 @@ export default function Home() {
               </div>
               
               <div className="flex items-center gap-3">
-                {/* --- MONTH FILTER INPUT --- */}
+                
                 <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg">
                     <Filter size={16} className="text-slate-400"/>
                     <span className="text-sm font-medium text-slate-600">Month:</span>
